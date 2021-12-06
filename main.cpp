@@ -236,7 +236,7 @@ MatrixXd internal_angles(MatrixXd& V, MatrixXi& F) {
 	return angles;
 }
 
-double cross(MatrixXd& e, MatrixXd& X) {
+double dot(MatrixXd& e, MatrixXd& X) {
 	Vector3d e1(e(0, 0), e(0, 1), e(0, 2));
 	Vector3d X1(X(0, 0), X(0, 1), X(0, 2));
 	return (e1.dot(X1));
@@ -252,7 +252,6 @@ MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, Ma
 	vector<int> e, ind;
 
 	for (int i = 0; i < V.rows(); i++) {
-
 		for (const auto& value : adj.at(i)) {
 			X = gradU.row(value);
 			for (int j = 0; j < 3; j = j + 1) {
@@ -262,8 +261,7 @@ MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, Ma
 			}
 			e1 = V.row(e.at(0)) - V.row(i);
 			e2 = V.row(e.at(1)) - V.row(i);
-			div(i, 0) += 0.5 * cotan(angles(value, ind.at(0))) * cross(e1, X) + 0.5 * cotan(angles(value, ind.at(1))) * cross(e2, X);
-
+			div(i, 0) += 0.5 * cotan(angles(value, ind.at(0))) * dot(e1, X) + 0.5 * cotan(angles(value, ind.at(1))) * dot(e2, X);
 			e.clear();
 			ind.clear();
 		}
@@ -437,7 +435,8 @@ int main()
 
 }
 
-/*int main()
+/*
+int main()
 {
 	// Load a mesh in OFF format
 	igl::opengl::glfw::Viewer viewer;

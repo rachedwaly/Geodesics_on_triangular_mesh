@@ -34,13 +34,10 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	if (key == '1')
 	{
 		viewer.data().clear();
-
-
 	}
 	else if (key == '2')
 	{
 		viewer.data().clear();
-
 	}
 	return false;
 }
@@ -131,7 +128,7 @@ MatrixXd dijkstra(MatrixXd& V, MatrixXi& F, VectorXi sources) {
 		pq.pop();
 		index = currentVertex.vertexIndex;
 		currentDist = currentVertex.distanceToSource;
-		cout << " # " << index << " # " << currentDist << endl;
+		//cout << " # " << index << " # " << currentDist << endl;
 		if (visited(index, 0) == 0) {
 			phi(index, 0) = currentDist;
 			visited(index, 0) = 1;
@@ -143,7 +140,7 @@ MatrixXd dijkstra(MatrixXd& V, MatrixXi& F, VectorXi sources) {
 					dist(neighborIndex, 0) = min(dist(neighborIndex, 0), currentDist + edgeNorm);
 					Point a({ neighborIndex,  dist(neighborIndex, 0) });
 					pq.push(a);
-					cout << neighborIndex << " : " << dist(neighborIndex, 0) << endl;
+					//cout << neighborIndex << " : " << dist(neighborIndex, 0) << endl;
 				}
 			}
 		}
@@ -187,20 +184,6 @@ void buildNeighbours(std::map<int, vector<int>>& adj, HalfedgeDS he, MatrixXd& V
 
 
 
-MatrixXd divMatrix1(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, MatrixXd& areaMatrix, MatrixXd& massMatrix, MatrixXd& grad) {
-	MatrixXd div = MatrixXd::Zero(V.rows(), F.rows() * 3);
-
-	for (int i = 0; i < V.rows(); i++) {
-
-		for (const auto& value : adj.at(i)) {
-			div(i, 3 * value) = -(areaMatrix(value, 0) / massMatrix(i, i)) * grad(3 * value, i);
-			div(i, 3 * value + 1) = -(areaMatrix(value, 0) / massMatrix(i, i)) * grad(3 * value + 1, i);
-			div(i, 3 * value + 2) = -(areaMatrix(value, 0) / massMatrix(i, i)) * grad(3 * value + 2, i);
-		}
-	}
-
-	return div;
-}
 
 double distance(MatrixXd& V1, MatrixXd& V2) {
 	return (V2 - V1).norm();
@@ -225,11 +208,9 @@ MatrixXd internal_angles(MatrixXd& V, MatrixXi& F) {
 		b = distance(A, C);
 		c = distance(A, B);
 
-
-
 		angles(i, 0) = cosinus_law(c, b, a);
 		angles(i, 1) = cosinus_law(a, c, b);
-		angles(i, 2) = cosinus_law(a, b, c);
+		angles(i, 2) = cosinus_law(b, a, c);
 
 	}
 
@@ -247,7 +228,6 @@ double dot(MatrixXd& e, MatrixXd& X) {
 MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, MatrixXd& areaMatrix, MatrixXd& massMatrix, MatrixXd& gradU) {
 	MatrixXd div = MatrixXd::Zero(V.rows(), 1);
 	MatrixXd angles = internal_angles(V, F);
-
 	MatrixXd X(1, 3), e1(1, 3), e2(1, 3);
 	vector<int> e, ind;
 
@@ -255,9 +235,10 @@ MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, Ma
 		for (const auto& value : adj.at(i)) {
 			X = gradU.row(value);
 			for (int j = 0; j < 3; j = j + 1) {
-				if (F(value, j) != i)
+				if (F(value, j) != i) {
 					e.push_back(F(value, j));
-				ind.push_back(j);
+					ind.push_back(j);
+				}
 			}
 			e1 = V.row(e.at(0)) - V.row(i);
 			e2 = V.row(e.at(1)) - V.row(i);
@@ -270,22 +251,6 @@ MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, Ma
 
 	return div;
 }
-void set_colormap(igl::opengl::glfw::Viewer& viewer)
-{
-	const int num_intervals = 30;
-	Eigen::MatrixXd CM(num_intervals, 3);
-	// Colormap texture
-	for (int i = 0; i < num_intervals; i++)
-	{
-		double t = double(num_intervals - i - 1) / double(num_intervals - 1);
-		CM(i, 0) = std::max(std::min(2.0 * t - 0.0, 1.0), 0.0);
-		CM(i, 1) = std::max(std::min(2.0 * t - 1.0, 1.0), 0.0);
-		CM(i, 2) = std::max(std::min(6.0 * t - 5.0, 1.0), 0.0);
-	}
-	igl::isolines_map(Eigen::MatrixXd(CM), CM);
-	viewer.data().set_colormap(CM);
-}
-
 
 
 void showVectorField(MatrixXd& V, MatrixXi& F, MatrixXd& GU, igl::opengl::glfw::Viewer& viewer) {
@@ -298,100 +263,8 @@ void showVectorField(MatrixXd& V, MatrixXi& F, MatrixXd& GU, igl::opengl::glfw::
 	viewer.data().add_edges(BC + GU * 0.5, BC + GU * 0.5 + GU * 0.5, blue);
 }
 
-map<int, vector<int>> flowMapByFaces(MatrixXd& V, MatrixXi& F, MatrixXd& GU) {
-	MatrixXd BC;
-	map<int, vector<int>> mapOfFlowByfaces;
-	igl::barycenter(V, F, BC);
-	double c1, c2, c3;
-	vector<int> a;
-	double k = 0;
-	Vector3d V1(0, 0, 0), V2(0, 0, 0), V3(0, 0, 0);
-	for (int i = 0; i < F.rows(); i = i + 1) {
-		V1 = V.row(F(i, 0)) - BC.row(i);
-		V2 = V.row(F(i, 1)) - BC.row(i);
-		V3 = V.row(F(i, 2)) - BC.row(i);
-		/*
-		if (V1.dot(GU.row(i)) > -0.1) {
-			a.push_back(F(i, 0));
-		}
-		if (V2.dot(GU.row(i)) > -0.1) {
-			a.push_back(F(i, 1));
-		}
-		if (V3.dot(GU.row(i)) > -0.1) {
-			a.push_back(F(i, 2));
-		}
-		*/
-		c1 = acos(V1.dot(GU.row(i)) / (V1.norm() * GU.row(i).norm()));
-		c2 = acos(V2.dot(GU.row(i)) / (V2.norm() * GU.row(i).norm()));
-		c3 = acos(V3.dot(GU.row(i)) / (V3.norm() * GU.row(i).norm()));
-
-		k = (max(c1, max(c2, c3)));
-
-		if (k == c1) {
-			a.push_back(F(i, 2));
-			a.push_back(F(i, 1));
-			a.push_back(F(i, 0));
-		}
-		if (k == c2) {
-			a.push_back(F(i, 2));
-			a.push_back(F(i, 0));
-			a.push_back(F(i, 1));
-		}
-		if (k == c3) {
-			a.push_back(F(i, 0));
-			a.push_back(F(i, 1));
-			a.push_back(F(i, 2));
-		}
-
-		mapOfFlowByfaces.insert({ i,vector<int>(a) });
-		a.clear();
-	}
-	return mapOfFlowByfaces;
-}
-
-void showMaxMinCurvature(MatrixXd& V, MatrixXi& F, igl::opengl::glfw::Viewer& viewer) {
-	MatrixXd PD1, PD2;
-	VectorXd PV1, PV2;
-	igl::principal_curvature(V, F, PD1, PD2, PV1, PV2);
-	// mean curvature
-	MatrixXd H = 0.5 * (PV1 + PV2);
 
 
-	viewer.data().set_data(H);
-	std::cout << PV1 << std::endl;
-	// Average edge length for sizing
-	const double avg = igl::avg_edge_length(V, F);
-
-	// Draw a red segment parallel to the maximal curvature direction
-	const RowVector3d red(0.8, 0.2, 0.2), blue(0.2, 0.2, 0.8);
-	viewer.data().add_edges(V + PD1 * avg, V - PD1 * avg, red);
-
-	// Draw a blue segment parallel to the minimal curvature direction
-	viewer.data().add_edges(V + PD2 * avg, V - PD2 * avg, blue);
-}
-
-
-void color(map<int, vector<int>>& mapOfFlow, MatrixXd& V, int source, MatrixXd& c, MatrixXd& phi2, map<int, int> mapOfFlags) {
-
-	map<int, vector<int>>::iterator it;
-
-	for (it = mapOfFlow.begin(); it != mapOfFlow.end(); it++)
-	{
-		for (int i = 0; i < it->second.size() - 1; i = i + 1) {
-
-			if (abs(phi2(it->second.at(i), 2) - phi2(it->second.at(2), 2)) > 0.15) {
-				mapOfFlags.at(it->second.at(i)) = 1;
-				c(it->second.at(i)) = 1;
-
-			}
-
-
-
-		}
-	}
-
-
-}
 
 int lookForNext(int sourceID, MatrixXd V, MatrixXi F, MatrixXd minCurvD, HalfedgeDS he) {
 	vector<int> neighbours = vertexNeighbour(he, sourceID);
@@ -399,7 +272,7 @@ int lookForNext(int sourceID, MatrixXd V, MatrixXi F, MatrixXd minCurvD, Halfedg
 	return 0;
 }
 
-
+/*
 int main()
 {
 	// Load a mesh in OFF format
@@ -433,9 +306,9 @@ int main()
 	viewer.data().show_lines = true;
 	viewer.launch();
 
-}
+}*/
 
-/*
+
 int main()
 {
 	// Load a mesh in OFF format
@@ -445,7 +318,7 @@ int main()
 
 	Eigen::MatrixXd I,A;
 
-	std::string filename = "C:\\Users\\yassi\\Desktop\\Projects\\INF574\\Geodesics_on_triangular_mesh\\data\\mctest2.off";
+	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere30_30.obj";
 	igl::read_triangle_mesh(filename, V, F);
 
 
@@ -476,15 +349,13 @@ int main()
 	Eigen::MatrixXd U1 = Eigen::MatrixXd::Zero(V.rows(), 1);
 
 
+	VectorXi sources = VectorXi::Zero(he.sizeOfVertices());
+	sources(0) = 1;
+	//sources(5) = 1;
+	//sources(10) = 1;
+	//sources(50) = 1;
 
-
-	U0(93, 0) = 1;
-
-
-
-
-
-
+	U0(0, 0) = 1;
 
 	Eigen::SparseMatrix<double> L, M;
 	igl::cotmatrix(V, F, L);
@@ -541,26 +412,28 @@ int main()
 
 
 	phi = dec1.solve(div);
+	MatrixXd phi2 = dijkstra(V, F, sources);
+	double shift= phi.minCoeff();
+
+	for (int i = 0; i < phi.rows(); i++) {
+		phi(i, 0) -= shift;
+	}
+
+	for (int i = 0; i < phi.rows(); i++) {
+		phi(i, 0) /= phi.maxCoeff();
+		phi2(i, 0) /= phi2.maxCoeff();
+	}
 
 
+	double error = 0;
+	for (int i = 0; i < phi.rows(); i++) {
+		error += pow((phi(i, 0) - phi2(i, 0)), 2);
+	}
 
-	// for measuring time performances
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "calculation time: " << elapsed.count() << " s\n";
-
-
-	//showVectorField(V, F, GU, viewer);
+	std::cout << "mean square error "<<error / phi.rows() << std::endl;
 
 
-	// Initialize white
-	C = Eigen::MatrixXd::Constant(F.rows(), 3, 1);
-	//viewer.data().set_colors(C);
-	map<int, vector<int>> mapOfFlow = flowMapByFaces(V, F, GU);
-
-	MatrixXd colors(V.rows(), 1);
-
-	viewer.callback_mouse_down = [&V, &F, &C,&he,&colors,&mapOfFlow](igl::opengl::glfw::Viewer& viewer, int, int)->bool
+	viewer.callback_mouse_down = [&V, &F, &C, &he,&phi,&phi2](igl::opengl::glfw::Viewer& viewer, int, int)->bool
 	{
 		int fid;
 		Eigen::Vector3f bc;
@@ -573,25 +446,38 @@ int main()
 		if (igl::unproject_onto_mesh(Eigen::Vector2f(x, y), viewer.core().view,
 			viewer.core().proj, viewer.core().viewport, V, F, fid, bc))
 		{
-			// paint hit red
-			C.row(fid) << 1, 0, 0;
 
-
-			//viewer.data().set_colors(C);
-			int sourceID = F(fid, 0);
-			for (int i = 0; i < 10; i++) {
-				//sourceID = lookForNext(sourceID, V,F, PD2.row(sourceID));
-			}
-
-
+			std::cout << F(fid, 0) << " " << F(fid, 1) << " " << F(fid, 2) << std::endl;
+			std::cout<<phi(F(fid, 0),0) << " " << phi(F(fid, 1),0) << " " << phi(F(fid, 2),0) << std::endl;
+			std::cout << phi2(F(fid, 0), 0) << " " << phi2(F(fid, 1), 0) << " " << phi2(F(fid, 2), 0) << std::endl;
+			std::cout << "////////////////////////////////////////////" << std::endl;
 			return true;
 		}
 		return false;
 	};
 
+	
+
+	// for measuring time performances
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed = finish - start;
+	std::cout << "calculation time: " << elapsed.count() << " s\n";
+
+
 	viewer.data().set_data(phi);
+	
+	std::cout << phi(1, 0) << "  " << phi2(1, 0) << std::endl;
+	std::cout << phi(2, 0) << "  " << phi2(2, 0) << std::endl;
+	std::cout << phi(3, 0) << "  " << phi2(3, 0) << std::endl;
+	std::cout << phi(4, 0) << "  " << phi2(4, 0) << std::endl;
+
+	std::cout << phi(5, 0) << "  " << phi2(5, 0) << std::endl;
+	std::cout << phi(6, 0) << "  " << phi2(6, 0) << std::endl;
+	std::cout << phi(7, 0) << "  " << phi2(7, 0) << std::endl;
+	std::cout << phi(8, 0) << "  " << phi2(8, 0) << std::endl;
+	
 	viewer.callback_key_down = &key_down;
 	viewer.data().show_lines = true;
 	viewer.launch();
 
-}*/
+}

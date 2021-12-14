@@ -217,7 +217,7 @@ MatrixXd internal_angles(MatrixXd& V, MatrixXi& F) {
 	return angles;
 }
 
-double dot(MatrixXd& e, MatrixXd& X) {
+double dot(const MatrixXd& e, const MatrixXd& X) {
 	Vector3d e1(e(0, 0), e(0, 1), e(0, 2));
 	Vector3d X1(X(0, 0), X(0, 1), X(0, 2));
 	return (e1.dot(X1));
@@ -309,6 +309,25 @@ int main()
 }*/
 
 
+float evaluation(MatrixXd& phi,MatrixXd& realValue) {
+	
+	for (int i = 0; i < phi.rows(); i++) {
+		phi(i, 0) /= phi.maxCoeff();
+		realValue(i, 0) /= realValue.maxCoeff();
+	}
+
+	double error = 0;
+	
+	MatrixXd percentError = MatrixXd::Zero(phi.rows(), 1);
+
+	for (int i = 0; i < phi.rows(); i++) {
+		percentError(i,0) = abs(phi(i, 0) - realValue(i, 0))/realValue(i,0);
+	}
+	error = percentError.sum()/phi.rows();
+	error *= 100;
+	return error;
+}
+
 int main()
 {
 	// Load a mesh in OFF format
@@ -318,7 +337,8 @@ int main()
 
 	Eigen::MatrixXd I,A;
 
-	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere30_30.obj";
+	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere.off";
+
 	igl::read_triangle_mesh(filename, V, F);
 
 
@@ -327,6 +347,8 @@ int main()
 	HalfedgeBuilder* builder = new HalfedgeBuilder();
 
 	HalfedgeDS he = builder->createMesh(V.rows(), F);
+
+	
 
 	std::map<int, vector<int>> adj;
 	Vector3d qsdqs = V.row(0);
@@ -351,87 +373,73 @@ int main()
 
 	VectorXi sources = VectorXi::Zero(he.sizeOfVertices());
 	sources(0) = 1;
-	//sources(5) = 1;
-	//sources(10) = 1;
-	//sources(50) = 1;
+
 
 	U0(0, 0) = 1;
-
+	MatrixXd phi2 = dijkstra(V, F, sources);
 	Eigen::SparseMatrix<double> L, M;
+	Eigen::SparseMatrix<double> G;
+
 	igl::cotmatrix(V, F, L);
 	igl::massmatrix(V, F, igl::MASSMATRIX_TYPE_VORONOI, M);
-
-
-	A = M - t * L;
-
-	Eigen::FullPivLU<Eigen::MatrixXd> dec(A);
-
-	U1 = dec.solve(U0);
-
-
-
-
-	// Compute gradient operator:
-	Eigen::SparseMatrix<double> G;
 	igl::grad(V, F, G);
-
-
-
-
-	Eigen::MatrixXd GU = Eigen::Map<const Eigen::MatrixXd>((G * U1).eval().data(), F.rows(), 3);
-
-
 
 	MatrixXd div;
 
+	// Compute gradient operator:
 
-
+	MatrixXd phi = MatrixXd::Zero(V.rows(), 1);
+	
 	MatrixXd area;
-	std::cout << "calculating areas" << std::endl;
 	area = areaMatrix(V, F);
+	
+	double coef = 0.01;
+	
 
+	MatrixXd realValue = MatrixXd::Zero(V.rows(), 1);
 
-	GU = -GU;
-	GU.rowwise().normalize();
-
-
-
-	cout << "Calculating geodesic paths" << endl;
-	auto start = std::chrono::high_resolution_clock::now();
-
-	div = divMatrix(adj, V, F, area, MatrixXd(M), GU);
-
-
-
-
-	MatrixXd phi=MatrixXd::Zero(V.rows(),1);
-
-
-
-	Eigen::FullPivLU<Eigen::MatrixXd> dec1(L);
-
-
-	phi = dec1.solve(div);
-	MatrixXd phi2 = dijkstra(V, F, sources);
-	double shift= phi.minCoeff();
-
-	for (int i = 0; i < phi.rows(); i++) {
-		phi(i, 0) -= shift;
+	for (int i = 0; i < V.rows(); i++) {
+		realValue(i, 0) = 2 * acos(dot(V.row(i), V.row(0))/4);
 	}
+	
+	for (int i = 1; i < 10; i++) {
+		A = M -coef * t * L;
 
-	for (int i = 0; i < phi.rows(); i++) {
-		phi(i, 0) /= phi.maxCoeff();
-		phi2(i, 0) /= phi2.maxCoeff();
+		Eigen::FullPivLU<Eigen::MatrixXd> dec(A);
+
+		U1 = dec.solve(U0);
+
+
+		Eigen::MatrixXd GU = Eigen::Map<const Eigen::MatrixXd>((G * U1).eval().data(), F.rows(), 3);
+
+		std::cout << "calculating areas" << std::endl;
+
+
+		GU = -GU;
+		GU.rowwise().normalize();
+
+		cout << "Calculating geodesic paths" << endl;
+		auto start = std::chrono::high_resolution_clock::now();
+
+		div = divMatrix(adj, V, F, area, MatrixXd(M), GU);
+
+		Eigen::FullPivLU<Eigen::MatrixXd> dec1(L);
+
+
+		phi = dec1.solve(div);
+		double shift = phi.minCoeff();
+
+		for (int i = 0; i < phi.rows(); i++) {
+			phi(i, 0) -= shift;
+		}
+		// for measuring time performances
+		auto finish = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> elapsed = finish - start;
+		std::cout << "calculation time: " << elapsed.count() << " s\n";
+
+		std::cout << "current coef" << coef << "   " << evaluation(phi, realValue) << std::endl;
+		coef += 0.01;
 	}
-
-
-	double error = 0;
-	for (int i = 0; i < phi.rows(); i++) {
-		error += pow((phi(i, 0) - phi2(i, 0)), 2);
-	}
-
-	std::cout << "mean square error "<<error / phi.rows() << std::endl;
-
 
 	viewer.callback_mouse_down = [&V, &F, &C, &he,&phi,&phi2](igl::opengl::glfw::Viewer& viewer, int, int)->bool
 	{
@@ -458,23 +466,12 @@ int main()
 
 	
 
-	// for measuring time performances
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "calculation time: " << elapsed.count() << " s\n";
 
 
-	viewer.data().set_data(phi);
+
+	viewer.data().set_data(phi2);
 	
-	std::cout << phi(1, 0) << "  " << phi2(1, 0) << std::endl;
-	std::cout << phi(2, 0) << "  " << phi2(2, 0) << std::endl;
-	std::cout << phi(3, 0) << "  " << phi2(3, 0) << std::endl;
-	std::cout << phi(4, 0) << "  " << phi2(4, 0) << std::endl;
 
-	std::cout << phi(5, 0) << "  " << phi2(5, 0) << std::endl;
-	std::cout << phi(6, 0) << "  " << phi2(6, 0) << std::endl;
-	std::cout << phi(7, 0) << "  " << phi2(7, 0) << std::endl;
-	std::cout << phi(8, 0) << "  " << phi2(8, 0) << std::endl;
 	
 	viewer.callback_key_down = &key_down;
 	viewer.data().show_lines = true;

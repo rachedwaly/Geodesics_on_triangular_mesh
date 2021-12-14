@@ -3,25 +3,16 @@
 #include <igl/unproject_onto_mesh.h>
 #include <igl/opengl/glfw/Viewer.h>
 #include <stdio.h>
-#include <conio.h>
 #include <stdlib.h>
 #include <direct.h>
 #include <igl/avg_edge_length.h>
 #include <igl/cotmatrix.h>
 #include <igl/invert_diag.h>
 #include <igl/massmatrix.h>
-#include <igl/parula.h>
-#include <igl/per_corner_normals.h>
-#include <igl/per_face_normals.h>
-#include <igl/per_vertex_normals.h>
-#include <igl/principal_curvature.h>
 #include <igl/barycenter.h>
 #include <igl/grad.h>
-#include <igl/jet.h>
 #include <igl/internal_angles.h>
-#include <igl/isolines_map.h>
 #include <queue>
-
 #include "HalfedgeBuilder.cpp"
 
 
@@ -179,10 +170,6 @@ vector<int> faceNeighbours(HalfedgeDS he, MatrixXd& V, MatrixXi& F, int f) {
 	return res;
 }
 
-int nextTriangleInColorFlow(HalfedgeDS he, MatrixXd& V, MatrixXi& F, int f) {
-	return 0;
-}
-
 
 void buildNeighbours(std::map<int, vector<int>>& adj, HalfedgeDS he, MatrixXd& V) {
 	for (int i = 0; i < V.rows(); i++) {
@@ -236,7 +223,7 @@ double dot(const MatrixXd& e, const MatrixXd& X) {
 MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, MatrixXd& areaMatrix, MatrixXd& massMatrix, MatrixXd& gradU) {
 	MatrixXd div = MatrixXd::Zero(V.rows(), 1);
 	MatrixXd angles = internal_angles(V, F);
-	MatrixXd X(1, 3), e1(1, 3), e2(1, 3);
+	Vector3d X, e1, e2;
 	vector<int> e, ind;
 
 	for (int i = 0; i < V.rows(); i++) {
@@ -250,7 +237,7 @@ MatrixXd divMatrix(std::map<int, vector<int>>& adj, MatrixXd& V, MatrixXi& F, Ma
 			}
 			e1 = V.row(e.at(0)) - V.row(i);
 			e2 = V.row(e.at(1)) - V.row(i);
-			div(i, 0) += 0.5 * cotan(angles(value, ind.at(0))) * dot(e1, X) + 0.5 * cotan(angles(value, ind.at(1))) * dot(e2, X);
+			div(i, 0) += 0.5 * cotan(angles(value, ind.at(0))) * e1.dot(X) + 0.5 * cotan(angles(value, ind.at(1))) *X.dot(e2);
 			e.clear();
 			ind.clear();
 		}
@@ -280,42 +267,6 @@ int lookForNext(int sourceID, MatrixXd V, MatrixXi F, MatrixXd minCurvD, Halfedg
 	return 0;
 }
 
-/*
-int main()
-{
-	// Load a mesh in OFF format
-	igl::opengl::glfw::Viewer viewer;
-	Eigen::MatrixXd V, C;
-	Eigen::MatrixXi F;
-
-	Eigen::MatrixXd I, A;
-
-	std::string filename = "C:\\Users\\yassi\\Desktop\\Projects\\INF574\\Geodesics_on_triangular_mesh\\data\\mctest2.off";
-	igl::read_triangle_mesh(filename, V, F);
-
-
-	viewer.data().set_mesh(V, F);
-
-	HalfedgeBuilder* builder = new HalfedgeBuilder();
-
-	HalfedgeDS he = builder->createMesh(V.rows(), F);
-
-
-	VectorXi sources = VectorXi::Zero(he.sizeOfVertices());
-	sources(0) = 1;
-	sources(5) = 1;
-	sources(10) = 1;
-	sources(50) = 1;
-
-
-	MatrixXd phi = dijkstra(V, F, sources);
-
-	viewer.data().set_data(phi);
-	viewer.data().show_lines = true;
-	viewer.launch();
-
-}*/
-
 
 float evaluation(MatrixXd& phi, MatrixXd& realValue) {
 
@@ -337,7 +288,7 @@ float evaluation(MatrixXd& phi, MatrixXd& realValue) {
 }
 
 
-void heatMethod(MatrixXd& V, MatrixXi& F, HalfedgeDS he) {
+void heatMethod(MatrixXd& V, MatrixXi& F, HalfedgeDS he, MatrixXd& sources) {
 	const double h = igl::avg_edge_length(V, F);
 	double t = pow(h, 2);
 	Eigen::MatrixXd A;
@@ -349,9 +300,11 @@ void heatMethod(MatrixXd& V, MatrixXi& F, HalfedgeDS he) {
 	std::cout << "calculating neighbours" << std::endl;
 	buildNeighbours(adj, he, V);
 
-	Eigen::MatrixXd U0 = Eigen::MatrixXd::Zero(V.rows(), 1);
+	//Eigen::MatrixXd U0 = Eigen::MatrixXd::Zero(V.rows(), 1);
 	Eigen::MatrixXd U1 = Eigen::MatrixXd::Zero(V.rows(), 1);
-	U0(0, 0) = 1;
+	//U0(0, 0) = 1;
+
+	
 	auto start2 = std::chrono::high_resolution_clock::now();
 	auto finish2 = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed2 = finish2 - start2;
@@ -372,7 +325,7 @@ void heatMethod(MatrixXd& V, MatrixXi& F, HalfedgeDS he) {
 
 	auto start = std::chrono::high_resolution_clock::now();
 
-	U1 = dec.solve(U0);
+	U1 = dec.solve(sources);
 	Eigen::MatrixXd GU = Eigen::Map<const Eigen::MatrixXd>((G * U1).eval().data(), F.rows(), 3);
 
 	std::cout << "calculating areas" << std::endl;
@@ -409,7 +362,7 @@ int main()
 
 
 
-	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere_meshlab.off";
+	std::string filename = "..\\data\\sphere2.off";
 
 	igl::read_triangle_mesh(filename, V, F);
 	viewer.data().set_mesh(V, F);
@@ -418,16 +371,23 @@ int main()
 	HalfedgeDS he = builder->createMesh(V.rows(), F);
 
 
+	MatrixXd sourcesHeat = MatrixXd::Zero(V.rows(), 1);
 
-	heatMethod(V,F,he);
+	sourcesHeat(0, 0) = 1;
+	//sourcesHeat(14, 0) = 1;
+
+	heatMethod(V,F,he,sourcesHeat);
 	
 	VectorXi sources = VectorXi::Zero(he.sizeOfVertices());
 	sources(0) = 1;
+	
+	//sources(14) = 1;
 	phi2 = dijkstra(V, F, sources);
 	
 	
 
-
+	phi /= phi.maxCoeff();
+	phi2 /= phi2.maxCoeff();
 
 
 
@@ -456,7 +416,7 @@ int main()
 	
 	MatrixXd realValue = MatrixXd::Zero(V.rows(), 1);
 	for (int i = 0; i < V.rows(); i++) { //calculating real distance for a sphere mesh
-		realValue(i, 0) = 2 * acos(dot(V.row(i), V.row(0)) / 4);
+		realValue(i, 0) = 2 * acos(V.row(i).dot(V.row(0)) / 4);
 	}
 
 

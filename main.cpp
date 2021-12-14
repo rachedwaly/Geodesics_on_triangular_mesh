@@ -29,15 +29,32 @@
 using namespace Eigen; // to use the classes provided by Eigen library
 using namespace std;
 
+struct Point {
+	int vertexIndex;
+	double distanceToSource;
+};
+
+struct pointComp {
+	bool operator() (Point a, Point b) {
+		return a.distanceToSource > b.distanceToSource;
+	}
+};
+
+MatrixXd phi2;
+
+MatrixXd phi;
+
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier)
 {
 	if (key == '1')
 	{
-		viewer.data().clear();
+		viewer.data().set_data(phi);
+		std::cout << "!!!!!!!!!!!!!!!! heat method !!!!!!!!!!!!!!!!" << std::endl;
 	}
 	else if (key == '2')
 	{
-		viewer.data().clear();
+		viewer.data().set_data(phi2);
+		std::cout << "!!!!!!!!!!!!!!!! disjktra method !!!!!!!!!!!!!!!!" << std::endl;
 	}
 	return false;
 }
@@ -78,16 +95,7 @@ vector<int> vertexNeighbour(HalfedgeDS he, int v) {
 	return n;
 }
 
-struct Point {
-	int vertexIndex;
-	double distanceToSource;
-};
 
-struct pointComp {
-	bool operator() (Point a, Point b) {
-		return a.distanceToSource > b.distanceToSource;
-	}
-};
 
 MatrixXd dijkstra(MatrixXd& V, MatrixXi& F, VectorXi sources) {
 
@@ -123,7 +131,7 @@ MatrixXd dijkstra(MatrixXd& V, MatrixXi& F, VectorXi sources) {
 	while (!pq.empty()) {
 		int index;
 		double currentDist;
-		
+
 		Point currentVertex = pq.top();
 		pq.pop();
 		index = currentVertex.vertexIndex;
@@ -136,7 +144,7 @@ MatrixXd dijkstra(MatrixXd& V, MatrixXi& F, VectorXi sources) {
 			for (int i = 0; i < adjList[index].size(); i++) {
 				int neighborIndex = adjList[index][i];
 				if (visited(neighborIndex, 0) == 0) {
-					double edgeNorm = (index==n)?0:(V.row(index) - V.row(neighborIndex)).norm();
+					double edgeNorm = (index == n) ? 0 : (V.row(index) - V.row(neighborIndex)).norm();
 					dist(neighborIndex, 0) = min(dist(neighborIndex, 0), currentDist + edgeNorm);
 					Point a({ neighborIndex,  dist(neighborIndex, 0) });
 					pq.push(a);
@@ -309,23 +317,87 @@ int main()
 }*/
 
 
-float evaluation(MatrixXd& phi,MatrixXd& realValue) {
-	
+float evaluation(MatrixXd& phi, MatrixXd& realValue) {
+
 	for (int i = 0; i < phi.rows(); i++) {
 		phi(i, 0) /= phi.maxCoeff();
 		realValue(i, 0) /= realValue.maxCoeff();
 	}
 
 	double error = 0;
-	
+
 	MatrixXd percentError = MatrixXd::Zero(phi.rows(), 1);
 
 	for (int i = 0; i < phi.rows(); i++) {
-		percentError(i,0) = abs(phi(i, 0) - realValue(i, 0))/realValue(i,0);
+		percentError(i, 0) = abs(phi(i, 0) - realValue(i, 0)) / realValue(i, 0);
 	}
-	error = percentError.sum()/phi.rows();
+	error = percentError.sum() / phi.rows();
 	error *= 100;
 	return error;
+}
+
+
+void heatMethod(MatrixXd& V, MatrixXi& F, HalfedgeDS he) {
+	const double h = igl::avg_edge_length(V, F);
+	double t = pow(h, 2);
+	Eigen::MatrixXd A;
+
+	std::map<int, vector<int>> adj;
+
+
+
+	std::cout << "calculating neighbours" << std::endl;
+	buildNeighbours(adj, he, V);
+
+	Eigen::MatrixXd U0 = Eigen::MatrixXd::Zero(V.rows(), 1);
+	Eigen::MatrixXd U1 = Eigen::MatrixXd::Zero(V.rows(), 1);
+	U0(0, 0) = 1;
+	auto start2 = std::chrono::high_resolution_clock::now();
+	auto finish2 = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed2 = finish2 - start2;
+	std::cout << "calculation time of dijkstra: " << elapsed2.count() << " s\n";
+	Eigen::SparseMatrix<double> L, M;
+	Eigen::SparseMatrix<double> G;
+	// Compute gradient operator:
+
+
+	cout << "Calculating geodesic paths" << endl;
+	igl::cotmatrix(V, F, L);
+	igl::massmatrix(V, F, igl::MASSMATRIX_TYPE_VORONOI, M);
+	igl::grad(V, F, G);
+
+	MatrixXd div;
+	A = M - t * L;
+	Eigen::FullPivLU<Eigen::MatrixXd> dec(A);
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	U1 = dec.solve(U0);
+	Eigen::MatrixXd GU = Eigen::Map<const Eigen::MatrixXd>((G * U1).eval().data(), F.rows(), 3);
+
+	std::cout << "calculating areas" << std::endl;
+	MatrixXd area;
+	area = areaMatrix(V, F);
+
+	GU = -GU;
+	GU.rowwise().normalize();
+
+
+	div = divMatrix(adj, V, F, area, MatrixXd(M), GU);
+	Eigen::FullPivLU<Eigen::MatrixXd> dec1(L);
+
+
+	phi = dec1.solve(div);
+	double shift = phi.minCoeff();
+
+	for (int i = 0; i < phi.rows(); i++) {
+		phi(i, 0) -= shift;
+	}
+	// for measuring time performances
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed = finish - start;
+	std::cout << "calculation time of heat method: " << elapsed.count() << " s\n";
+	
 }
 
 int main()
@@ -335,113 +407,31 @@ int main()
 	Eigen::MatrixXd V, C;
 	Eigen::MatrixXi F;
 
-	Eigen::MatrixXd I,A;
 
-	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere.off";
+
+	std::string filename = "C:\\Users\\rached\\Documents\\Telecom\\igd\\Xinf574\\project\\data\\sphere_meshlab.off";
 
 	igl::read_triangle_mesh(filename, V, F);
-
-
 	viewer.data().set_mesh(V, F);
-
+	
 	HalfedgeBuilder* builder = new HalfedgeBuilder();
-
 	HalfedgeDS he = builder->createMesh(V.rows(), F);
 
+
+
+	heatMethod(V,F,he);
 	
-
-	std::map<int, vector<int>> adj;
-	Vector3d qsdqs = V.row(0);
-
-
-	std::cout << "calculating neighbours" << std::endl;
-	buildNeighbours(adj, he, V);
-
-
-
-	const double h = igl::avg_edge_length(V, F);
-	double t = pow(h, 2);
-
-
-	Eigen::MatrixXd U0=Eigen::MatrixXd::Zero(V.rows(), 1);
-
-
-
-
-	Eigen::MatrixXd U1 = Eigen::MatrixXd::Zero(V.rows(), 1);
-
-
 	VectorXi sources = VectorXi::Zero(he.sizeOfVertices());
 	sources(0) = 1;
-
-
-	U0(0, 0) = 1;
-	MatrixXd phi2 = dijkstra(V, F, sources);
-	Eigen::SparseMatrix<double> L, M;
-	Eigen::SparseMatrix<double> G;
-
-	igl::cotmatrix(V, F, L);
-	igl::massmatrix(V, F, igl::MASSMATRIX_TYPE_VORONOI, M);
-	igl::grad(V, F, G);
-
-	MatrixXd div;
-
-	// Compute gradient operator:
-
-	MatrixXd phi = MatrixXd::Zero(V.rows(), 1);
+	phi2 = dijkstra(V, F, sources);
 	
-	MatrixXd area;
-	area = areaMatrix(V, F);
-	
-	double coef = 0.01;
 	
 
-	MatrixXd realValue = MatrixXd::Zero(V.rows(), 1);
-
-	for (int i = 0; i < V.rows(); i++) {
-		realValue(i, 0) = 2 * acos(dot(V.row(i), V.row(0))/4);
-	}
-	
-	for (int i = 1; i < 10; i++) {
-		A = M -coef * t * L;
-
-		Eigen::FullPivLU<Eigen::MatrixXd> dec(A);
-
-		U1 = dec.solve(U0);
 
 
-		Eigen::MatrixXd GU = Eigen::Map<const Eigen::MatrixXd>((G * U1).eval().data(), F.rows(), 3);
-
-		std::cout << "calculating areas" << std::endl;
 
 
-		GU = -GU;
-		GU.rowwise().normalize();
-
-		cout << "Calculating geodesic paths" << endl;
-		auto start = std::chrono::high_resolution_clock::now();
-
-		div = divMatrix(adj, V, F, area, MatrixXd(M), GU);
-
-		Eigen::FullPivLU<Eigen::MatrixXd> dec1(L);
-
-
-		phi = dec1.solve(div);
-		double shift = phi.minCoeff();
-
-		for (int i = 0; i < phi.rows(); i++) {
-			phi(i, 0) -= shift;
-		}
-		// for measuring time performances
-		auto finish = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<double> elapsed = finish - start;
-		std::cout << "calculation time: " << elapsed.count() << " s\n";
-
-		std::cout << "current coef" << coef << "   " << evaluation(phi, realValue) << std::endl;
-		coef += 0.01;
-	}
-
-	viewer.callback_mouse_down = [&V, &F, &C, &he,&phi,&phi2](igl::opengl::glfw::Viewer& viewer, int, int)->bool
+	viewer.callback_mouse_down = [&V, &F, &C, &he](igl::opengl::glfw::Viewer& viewer, int, int)->bool
 	{
 		int fid;
 		Eigen::Vector3f bc;
@@ -456,23 +446,27 @@ int main()
 		{
 
 			std::cout << F(fid, 0) << " " << F(fid, 1) << " " << F(fid, 2) << std::endl;
-			std::cout<<phi(F(fid, 0),0) << " " << phi(F(fid, 1),0) << " " << phi(F(fid, 2),0) << std::endl;
-			std::cout << phi2(F(fid, 0), 0) << " " << phi2(F(fid, 1), 0) << " " << phi2(F(fid, 2), 0) << std::endl;
+			std::cout <<"heat method values" <<phi(F(fid, 0), 0) << " " << phi(F(fid, 1), 0) << " " << phi(F(fid, 2), 0) << std::endl;
+			std::cout << "dijkstra method's values"<<phi2(F(fid, 0), 0) << " " << phi2(F(fid, 1), 0) << " " << phi2(F(fid, 2), 0) << std::endl;
 			std::cout << "////////////////////////////////////////////" << std::endl;
 			return true;
 		}
 		return false;
 	};
-
 	
+	MatrixXd realValue = MatrixXd::Zero(V.rows(), 1);
+	for (int i = 0; i < V.rows(); i++) { //calculating real distance for a sphere mesh
+		realValue(i, 0) = 2 * acos(dot(V.row(i), V.row(0)) / 4);
+	}
 
 
-
+	std::cout << "press 1 key to visualize the heat method result" << std::endl;
+	std::cout << "press 2 key to visualize the dijkstra method result" << std::endl;
 
 	viewer.data().set_data(phi2);
-	
 
-	
+
+
 	viewer.callback_key_down = &key_down;
 	viewer.data().show_lines = true;
 	viewer.launch();
